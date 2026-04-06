@@ -1,0 +1,26 @@
+pipeline:
+  version: "0.1.0"
+  data_root: "data/shared_assistant"
+
+ocr:
+  engine: "rapidocr"
+
+vlm:
+  enabled: false
+  model: "qwen3.5:0.8b"
+  mode: "review_only"
+
+database:
+  path: "data/shared/weld_traceability.db"
+
+export:
+  output_dir: "data/shared_exports"
+  csv_fields:
+    - drawing_number
+    - weld_id
+    - status
+    - completed_by
+    - completed_at
+    - inspection_status
+    - last_photo_id
+    - last_photo_path

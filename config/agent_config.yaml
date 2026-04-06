@@ -1,0 +1,36 @@
+assistant:
+  repo_path: ""
+  config_path: "config/shared_assistant_config.yaml"
+  auto_bootstrap: true
+
+agent:
+  data_root: "data"
+  runtime_db_path: "data/agent_runtime.db"
+  drafts_dir: "data/drafts"
+  inbox_dir: "data/inbox"
+  max_tool_rounds: 6
+  state_ttl_hours: 24
+
+security:
+  allowed_users: []
+  allowed_chats: []
+  admin_chats: []
+
+review:
+  notify_submitter: true
+  notify_admins: true
+
+openai:
+  enabled: true
+  api_key_env: "OPENAI_API_KEY"
+  model: "gpt-5.4-mini"
+  reasoning_effort: "low"
+  temperature: 0.0
+  max_output_tokens: 700
+  timeout_sec: 90
+
+telegram:
+  enabled: false
+  bot_token_env: "TELEGRAM_BOT_TOKEN"
+  ack_text: "\u5df2\u6536\u5230\uff0c\u6b63\u5728\u5904\u7406\u4e2d\u3002"
+  worker_count: 1
