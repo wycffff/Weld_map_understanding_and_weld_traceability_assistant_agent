@@ -138,3 +138,7 @@ def run_telegram_bot(config: AgentAppConfig | None = None) -> None:
 
 def main() -> None:
     run_telegram_bot()
+
+
+if __name__ == "__main__":
+    main()

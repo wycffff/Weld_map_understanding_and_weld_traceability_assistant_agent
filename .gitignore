@@ -2,6 +2,7 @@ __pycache__/
 .pytest_cache/
 *.pyc
 .venv/
+*.egg-info/
 data/
 source_repo/
 !.gitkeep

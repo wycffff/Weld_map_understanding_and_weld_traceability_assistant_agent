@@ -59,3 +59,7 @@ def main() -> None:
     )
     plan = orchestrator.process_message(incoming)
     print(json.dumps(plan.model_dump(mode="json"), ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    main()
