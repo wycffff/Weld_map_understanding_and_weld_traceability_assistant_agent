@@ -44,9 +44,11 @@ Process a local message through the agent:
 python -m weld_traceability_agent.cli process-message `
   --chat-id 1001 `
   --user-id 501 `
-  --message-id msg-1 `
   --text "确认录入"
 ```
+
+`--message-id` is optional in CLI mode. If you omit it, the CLI generates a fresh id automatically.
+If you reuse the same `chat_id + message_id`, the runtime will treat it as a duplicate and skip it.
 
 Run the Telegram bot:
 

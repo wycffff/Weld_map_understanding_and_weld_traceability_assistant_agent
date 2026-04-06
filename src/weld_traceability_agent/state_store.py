@@ -250,6 +250,18 @@ class RuntimeStateStore:
             )
         return cursor.rowcount == 1
 
+    def has_processed_message(self, channel: str, chat_id: str, message_id: str) -> bool:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT 1
+                FROM processed_message
+                WHERE channel = ? AND chat_id = ? AND message_id = ?
+                """,
+                (channel, chat_id, message_id),
+            ).fetchone()
+        return row is not None
+
 
 def _parse_dt(value: str):
     from datetime import datetime
