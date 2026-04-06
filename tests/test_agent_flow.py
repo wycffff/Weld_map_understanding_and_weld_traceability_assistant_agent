@@ -6,6 +6,7 @@ from pathlib import Path
 import yaml
 
 from weld_assistant.contracts import DrawingData, ProcessingLog, ReviewItem, StructuredDrawing, WeldItem
+from weld_traceability_agent.assistant_bridge import AttachmentRoutingDecision
 from weld_traceability_agent.config import load_agent_config
 from weld_traceability_agent.orchestrator import AgentOrchestrator
 from weld_traceability_agent.runtime_models import BotAttachment, IncomingMessage
@@ -27,7 +28,7 @@ def test_end_to_end_message_flow_with_fake_parse(tmp_path: Path):
             chat_id="1001",
             user_id="501",
             message_id="msg-1",
-            text="这张图帮我录入",
+            text="Please import this drawing.",
             attachments=[
                 BotAttachment(
                     attachment_id="att-1",
@@ -38,7 +39,7 @@ def test_end_to_end_message_flow_with_fake_parse(tmp_path: Path):
             ],
         )
     )
-    assert any("确认录入" in message.text for message in first_plan.messages)
+    assert any("confirm import" in message.text.lower() for message in first_plan.messages)
 
     second_plan = orchestrator.process_message(
         IncomingMessage(
@@ -46,10 +47,10 @@ def test_end_to_end_message_flow_with_fake_parse(tmp_path: Path):
             chat_id="1001",
             user_id="501",
             message_id="msg-2",
-            text="确认录入",
+            text="confirm import",
         )
     )
-    assert any("已录入图纸 C-52" in message.text for message in second_plan.messages)
+    assert any("Imported drawing C-52" in message.text for message in second_plan.messages)
     assert any(message.chat_id == "9001" for message in second_plan.messages)
     assert orchestrator.bridge.repository.get_drawing("C-52") is not None
 
@@ -59,10 +60,13 @@ def test_end_to_end_message_flow_with_fake_parse(tmp_path: Path):
             chat_id="1001",
             user_id="501",
             message_id="msg-3",
-            text="W03 检验完成了",
+            text="W03 inspection completed.",
         )
     )
-    assert any("检验状态已更新为 accepted" in message.text for message in third_plan.messages)
+    assert any(
+        "Updated inspection status for C-52/W03 to accepted." in message.text
+        for message in third_plan.messages
+    )
     weld_row = orchestrator.bridge.repository.get_weld("C-52", "W03")
     assert weld_row is not None
     assert weld_row["inspection_status"] == "accepted"
@@ -75,7 +79,7 @@ def test_end_to_end_message_flow_with_fake_parse(tmp_path: Path):
             chat_id="1001",
             user_id="501",
             message_id="msg-4",
-            text="这是焊口照片",
+            text="This is a weld photo.",
             attachments=[
                 BotAttachment(
                     attachment_id="att-2",
@@ -86,8 +90,21 @@ def test_end_to_end_message_flow_with_fake_parse(tmp_path: Path):
             ],
         )
     )
-    assert any("已把照片" in message.text for message in fourth_plan.messages)
+    assert any("Attached photo" in message.text for message in fourth_plan.messages)
     assert len(orchestrator.bridge.repository.list_photo_evidence("C-52", "W03")) == 1
+
+    list_review_plan = orchestrator.process_message(
+        IncomingMessage(
+            channel="telegram",
+            chat_id="1001",
+            user_id="501",
+            message_id="msg-5",
+            text="list review",
+        )
+    )
+    assert any("Open review items for drawing C-52 (1)" in message.text for message in list_review_plan.messages)
+    assert any("1. Review item" in message.text for message in list_review_plan.messages)
+    assert any("needs manual confirmation" in message.text for message in list_review_plan.messages)
 
     duplicate_plan = orchestrator.process_message(
         IncomingMessage(
@@ -95,7 +112,7 @@ def test_end_to_end_message_flow_with_fake_parse(tmp_path: Path):
             chat_id="1001",
             user_id="501",
             message_id="msg-4",
-            text="这是焊口照片",
+            text="This is a weld photo.",
         )
     )
     assert duplicate_plan.messages == []
@@ -116,23 +133,214 @@ def test_whitelist_blocks_unknown_chat(tmp_path: Path):
     assert plan.messages == []
 
 
+def test_parse_respects_local_vlm_toggle(tmp_path: Path):
+    agent_config_path = _write_test_configs(tmp_path, allowed_chats=["1001"], use_local_vlm_for_parse=False)
+    orchestrator = AgentOrchestrator(load_agent_config(agent_config_path))
+
+    fake_bridge = FakeBridge(orchestrator.bridge, _build_structured_drawing())
+    orchestrator.bridge = fake_bridge
+    orchestrator.toolbox.bridge = fake_bridge
+
+    drawing_file = tmp_path / "drawing.jpg"
+    drawing_file.write_bytes(b"fake-drawing")
+    orchestrator.process_message(
+        IncomingMessage(
+            channel="telegram",
+            chat_id="1001",
+            user_id="501",
+            message_id="msg-vlm-off",
+            text="Please import this drawing.",
+            attachments=[
+                BotAttachment(
+                    attachment_id="att-1",
+                    kind="image",
+                    file_name=drawing_file.name,
+                    local_path=str(drawing_file),
+                )
+            ],
+        )
+    )
+
+    assert fake_bridge.last_use_vlm is False
+
+
+def test_ambiguous_image_classified_as_drawing_creates_draft(tmp_path: Path):
+    agent_config_path = _write_test_configs(tmp_path, allowed_chats=["1001"])
+    orchestrator = AgentOrchestrator(load_agent_config(agent_config_path))
+
+    fake_bridge = FakeBridge(
+        orchestrator.bridge,
+        _build_structured_drawing(),
+        routing_decision=AttachmentRoutingDecision(kind="drawing", ocr_token_count=24),
+    )
+    orchestrator.bridge = fake_bridge
+    orchestrator.toolbox.bridge = fake_bridge
+
+    drawing_file = tmp_path / "drawing.jpg"
+    drawing_file.write_bytes(b"fake-drawing")
+    plan = orchestrator.process_message(
+        IncomingMessage(
+            channel="telegram",
+            chat_id="1001",
+            user_id="501",
+            message_id="msg-route-drawing",
+            text="",
+            attachments=[
+                BotAttachment(
+                    attachment_id="att-drawing",
+                    kind="photo",
+                    file_name=drawing_file.name,
+                    local_path=str(drawing_file),
+                )
+            ],
+        )
+    )
+
+    assert fake_bridge.last_routing_decision is not None
+    assert fake_bridge.last_routing_decision.kind == "drawing"
+    assert any("Draft created. Please confirm." in message.text for message in plan.messages)
+    assert any("Source: recognized from drawing" in message.text for message in plan.messages)
+
+
+def test_ambiguous_image_classified_as_weld_photo_requests_context(tmp_path: Path):
+    agent_config_path = _write_test_configs(tmp_path, allowed_chats=["1001"])
+    orchestrator = AgentOrchestrator(load_agent_config(agent_config_path))
+
+    fake_bridge = FakeBridge(
+        orchestrator.bridge,
+        _build_structured_drawing(),
+        routing_decision=AttachmentRoutingDecision(kind="weld_photo", ocr_token_count=4),
+    )
+    orchestrator.bridge = fake_bridge
+    orchestrator.toolbox.bridge = fake_bridge
+
+    photo_file = tmp_path / "photo.jpg"
+    photo_file.write_bytes(b"fake-photo")
+    plan = orchestrator.process_message(
+        IncomingMessage(
+            channel="telegram",
+            chat_id="1001",
+            user_id="501",
+            message_id="msg-route-photo",
+            text="",
+            attachments=[
+                BotAttachment(
+                    attachment_id="att-photo",
+                    kind="photo",
+                    file_name=photo_file.name,
+                    local_path=str(photo_file),
+                )
+            ],
+        )
+    )
+
+    assert any("This looks like a weld photo." in message.text for message in plan.messages)
+    assert any("drawing number and weld ID" in message.text for message in plan.messages)
+
+
+def test_list_review_items_returns_numbered_output(tmp_path: Path):
+    agent_config_path = _write_test_configs(tmp_path, allowed_chats=["1001"])
+    orchestrator = AgentOrchestrator(load_agent_config(agent_config_path))
+
+    fake_bridge = FakeBridge(orchestrator.bridge, _build_structured_drawing())
+    orchestrator.bridge = fake_bridge
+    orchestrator.toolbox.bridge = fake_bridge
+
+    drawing_file = tmp_path / "drawing.jpg"
+    drawing_file.write_bytes(b"fake-drawing")
+    orchestrator.process_message(
+        IncomingMessage(
+            channel="telegram",
+            chat_id="1001",
+            user_id="501",
+            message_id="msg-review-import-1",
+            text="Please import this drawing.",
+            attachments=[
+                BotAttachment(
+                    attachment_id="att-review-1",
+                    kind="image",
+                    file_name=drawing_file.name,
+                    local_path=str(drawing_file),
+                )
+            ],
+        )
+    )
+    orchestrator.process_message(
+        IncomingMessage(
+            channel="telegram",
+            chat_id="1001",
+            user_id="501",
+            message_id="msg-review-import-2",
+            text="confirm import",
+        )
+    )
+
+    plan = orchestrator.process_message(
+        IncomingMessage(
+            channel="telegram",
+            chat_id="1001",
+            user_id="501",
+            message_id="msg-review-list",
+            text="review items",
+        )
+    )
+
+    assert any("Open review items for drawing C-52 (1)" in message.text for message in plan.messages)
+    assert any("1. Review item" in message.text for message in plan.messages)
+    assert any("needs manual confirmation" in message.text for message in plan.messages)
+
+
+def test_list_review_items_empty_state(tmp_path: Path):
+    agent_config_path = _write_test_configs(tmp_path, allowed_chats=["1001"])
+    orchestrator = AgentOrchestrator(load_agent_config(agent_config_path))
+
+    plan = orchestrator.process_message(
+        IncomingMessage(
+            channel="telegram",
+            chat_id="1001",
+            user_id="501",
+            message_id="msg-empty-review",
+            text="show review",
+        )
+    )
+
+    assert any("There are no open review items right now." in message.text for message in plan.messages)
+
+
 class FakeBridge:
-    def __init__(self, real_bridge, structured: StructuredDrawing):
+    def __init__(
+        self,
+        real_bridge,
+        structured: StructuredDrawing,
+        routing_decision: AttachmentRoutingDecision | None = None,
+    ):
         self._real_bridge = real_bridge
         self._structured = structured
         self.repository = real_bridge.repository
         self.progress_service = real_bridge.progress_service
         self.review_service = real_bridge.review_service
         self.exporter = real_bridge.exporter
+        self.last_use_vlm: bool | None = None
+        self.routing_decision = routing_decision or AttachmentRoutingDecision(kind="drawing", ocr_token_count=24)
+        self.last_routing_decision: AttachmentRoutingDecision | None = None
 
     def __getattr__(self, item):
         return getattr(self._real_bridge, item)
 
     def parse_drawing(self, input_path, use_vlm: bool = True) -> StructuredDrawing:
+        self.last_use_vlm = use_vlm
         return StructuredDrawing.model_validate(self._structured.model_dump(mode="json"))
 
+    def classify_attachment_for_routing(self, input_path) -> AttachmentRoutingDecision:
+        self.last_routing_decision = self.routing_decision
+        return self.routing_decision
 
-def _write_test_configs(tmp_path: Path, allowed_chats: list[str] | None = None) -> Path:
+
+def _write_test_configs(
+    tmp_path: Path,
+    allowed_chats: list[str] | None = None,
+    use_local_vlm_for_parse: bool = True,
+) -> Path:
     assistant_data = tmp_path / "assistant_data"
     assistant_data.mkdir(parents=True, exist_ok=True)
     assistant_config_path = tmp_path / "assistant_config.yaml"
@@ -152,6 +360,7 @@ def _write_test_configs(tmp_path: Path, allowed_chats: list[str] | None = None) 
             "runtime_db_path": str(tmp_path / "runtime.db"),
             "drafts_dir": str(tmp_path / "drafts"),
             "inbox_dir": str(tmp_path / "inbox"),
+            "use_local_vlm_for_parse": use_local_vlm_for_parse,
         },
         "security": {
             "allowed_chats": allowed_chats or ["1001"],

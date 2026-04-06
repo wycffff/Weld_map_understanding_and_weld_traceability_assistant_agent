@@ -184,20 +184,29 @@ class AgentToolbox:
     def invoke(self, tool_name: str, arguments: dict[str, Any], incoming: IncomingMessage) -> dict[str, Any]:
         handler = self._handlers.get(tool_name)
         if not handler:
-            return self._error("unknown_tool", f"未知工具: {tool_name}")
+            return self._error("unknown_tool", f"Unknown tool: {tool_name}")
         try:
             return handler(arguments, incoming)
+        except FileNotFoundError as exc:
+            target = exc.filename or str(exc)
+            return self._error(
+                "missing_local_file",
+                f"Required local file is missing: {target}. Check the shared assistant config and ROI template files.",
+            )
         except Exception as exc:  # pragma: no cover - defensive
             return self._error("tool_failed", str(exc))
 
     def parse_drawing_draft(self, arguments: dict[str, Any], incoming: IncomingMessage) -> dict[str, Any]:
         state = self._get_state(incoming)
         if state.active_draft_id and self.store.get_active_draft(incoming.chat_id):
-            return self._error("draft_pending_confirmation", "当前还有未确认的图纸草稿，请先确认或处理上一张图。")
+            return self._error(
+                "draft_pending_confirmation",
+                "There is still an unconfirmed drawing draft in this chat. Please confirm or handle the previous one first.",
+            )
 
         attachment = self._attachment_by_id(incoming.attachments, arguments["attachment_id"])
         if not attachment:
-            return self._error("attachment_not_found", "未找到要解析的附件。")
+            return self._error("attachment_not_found", "I could not find the attachment to parse.")
 
         task = self.store.create_task(
             chat_id=incoming.chat_id,
@@ -209,7 +218,10 @@ class AgentToolbox:
         state.active_task_id = task.task_id
         self.store.save_conversation(state)
 
-        structured = self.bridge.parse_drawing(attachment.local_path, use_vlm=True)
+        structured = self.bridge.parse_drawing(
+            attachment.local_path,
+            use_vlm=self.config.agent.use_local_vlm_for_parse,
+        )
         draft_id = f"draft_{uuid4().hex[:12]}"
         draft_path = self.config.resolve_path(self.config.agent.drafts_dir) / f"{draft_id}.json"
         draft_path.parent.mkdir(parents=True, exist_ok=True)
@@ -237,10 +249,7 @@ class AgentToolbox:
         state.pending_action = "confirm_draft_import"
         self.store.save_conversation(state)
         return self._success(
-            reply_hint=(
-                f"已生成待确认草稿。\n{draft.preview_text}\n"
-                "如果没问题，请直接回复“确认录入”。"
-            ),
+            reply_hint=draft.preview_text,
             draft_id=draft.draft_id,
             drawing_number_candidate=draft.drawing_number_candidate,
             review_count=draft.review_count,
@@ -251,11 +260,11 @@ class AgentToolbox:
         state = self._get_state(incoming)
         draft_id = arguments.get("draft_id") or state.active_draft_id
         if not draft_id:
-            return self._error("missing_draft", "当前没有待确认的图纸草稿。")
+            return self._error("missing_draft", "There is no drawing draft waiting for confirmation right now.")
 
         draft = self.store.get_draft(draft_id)
         if not draft:
-            return self._error("draft_not_found", "没有找到对应的草稿记录。")
+            return self._error("draft_not_found", "I could not find that draft record.")
 
         structured = self.bridge.load_structured_draft(draft.structured_json_path)
         drawing_number = self.bridge.import_structured_drawing(structured, overwrite=bool(arguments.get("overwrite", False)))
@@ -278,14 +287,15 @@ class AgentToolbox:
                 self._outbox.append(
                     OutgoingMessage(
                         chat_id=str(admin_chat),
-                        text=f"审查提醒: 图纸 {drawing_number} 新增 {review_count} 条待审查项。",
+                        text=f"Review alert: drawing {drawing_number} has {review_count} new review items.",
                     )
                 )
 
         return self._success(
             reply_hint=(
-                f"已录入图纸 {drawing_number}。"
-                f"焊口 {len(structured.welds)} 个，待审查项 {review_count} 个。"
+                f"Imported drawing {drawing_number}. "
+                f"Welds: {len(structured.welds)}. Review items: {review_count}. "
+                'Send "list review" to inspect the open review items.'
             ),
             drawing_number=drawing_number,
             weld_count=len(structured.welds),
@@ -327,7 +337,10 @@ class AgentToolbox:
         state = self._get_state(incoming)
         drawing_number = arguments.get("drawing_number") or state.selected_drawing_number
         if not drawing_number:
-            return self._error("missing_drawing_context", "当前没有唯一图纸上下文，请先提供图号。")
+            return self._error(
+                "missing_drawing_context",
+                "I do not have a unique drawing in context yet. Please provide the drawing number first.",
+            )
         weld_ids = [str(value) for value in arguments.get("weld_ids", [])]
         result = self.bridge.progress_service.register_welds(
             drawing_number=drawing_number,
@@ -344,9 +357,9 @@ class AgentToolbox:
         self.store.save_conversation(state)
         return self._success(
             reply_hint=(
-                f"图纸 {drawing_number} 已处理焊口补录。"
-                f"新建: {', '.join(created) if created else '无'}；"
-                f"已存在跳过: {', '.join(result['skipped_existing']) if result['skipped_existing'] else '无'}。"
+                f"Processed weld registration for drawing {drawing_number}. "
+                f"Created: {', '.join(created) if created else 'none'}; "
+                f"skipped existing: {', '.join(result['skipped_existing']) if result['skipped_existing'] else 'none'}."
             ),
             drawing_number=drawing_number,
             created=created,
@@ -358,9 +371,15 @@ class AgentToolbox:
         drawing_number = arguments.get("drawing_number") or state.selected_drawing_number
         weld_id = self.bridge.normalize_weld_id(arguments.get("weld_id") or state.selected_weld_id)
         if not drawing_number:
-            return self._error("missing_drawing_context", "当前没有唯一图纸上下文，请先提供图号。")
+            return self._error(
+                "missing_drawing_context",
+                "I do not have a unique drawing in context yet. Please provide the drawing number first.",
+            )
         if not weld_id:
-            return self._error("missing_weld_context", "当前没有唯一焊口上下文，请先提供焊口号。")
+            return self._error(
+                "missing_weld_context",
+                "I do not have a unique weld in context yet. Please provide the weld ID first.",
+            )
         self._ensure_weld_exists(drawing_number, weld_id)
         event = self.bridge.progress_service.update_status(
             drawing_number=drawing_number,
@@ -373,7 +392,7 @@ class AgentToolbox:
         state.selected_weld_id = weld_id
         self.store.save_conversation(state)
         return self._success(
-            reply_hint=f"{drawing_number}/{weld_id} 的焊接状态已更新为 {event.to_status}。",
+            reply_hint=f"Updated weld status for {drawing_number}/{weld_id} to {event.to_status}.",
             drawing_number=drawing_number,
             weld_id=weld_id,
             to_status=event.to_status,
@@ -384,9 +403,15 @@ class AgentToolbox:
         drawing_number = arguments.get("drawing_number") or state.selected_drawing_number
         weld_id = self.bridge.normalize_weld_id(arguments.get("weld_id") or state.selected_weld_id)
         if not drawing_number:
-            return self._error("missing_drawing_context", "当前没有唯一图纸上下文，请先提供图号。")
+            return self._error(
+                "missing_drawing_context",
+                "I do not have a unique drawing in context yet. Please provide the drawing number first.",
+            )
         if not weld_id:
-            return self._error("missing_weld_context", "当前没有唯一焊口上下文，请先提供焊口号。")
+            return self._error(
+                "missing_weld_context",
+                "I do not have a unique weld in context yet. Please provide the weld ID first.",
+            )
         self._ensure_weld_exists(drawing_number, weld_id)
         event = self.bridge.progress_service.update_inspection(
             drawing_number=drawing_number,
@@ -399,7 +424,7 @@ class AgentToolbox:
         state.selected_weld_id = weld_id
         self.store.save_conversation(state)
         return self._success(
-            reply_hint=f"{drawing_number}/{weld_id} 的检验状态已更新为 {event.to_status}。",
+            reply_hint=f"Updated inspection status for {drawing_number}/{weld_id} to {event.to_status}.",
             drawing_number=drawing_number,
             weld_id=weld_id,
             inspection_status=event.to_status,
@@ -411,11 +436,17 @@ class AgentToolbox:
         weld_id = self.bridge.normalize_weld_id(arguments.get("weld_id") or state.selected_weld_id)
         attachment = self._attachment_by_id(incoming.attachments, arguments["attachment_id"])
         if not drawing_number:
-            return self._error("missing_drawing_context", "当前没有唯一图纸上下文，请先提供图号。")
+            return self._error(
+                "missing_drawing_context",
+                "I do not have a unique drawing in context yet. Please provide the drawing number first.",
+            )
         if not weld_id:
-            return self._error("missing_weld_context", "当前没有唯一焊口上下文，请先提供焊口号。")
+            return self._error(
+                "missing_weld_context",
+                "I do not have a unique weld in context yet. Please provide the weld ID first.",
+            )
         if not attachment:
-            return self._error("attachment_not_found", "没有找到要挂接的照片。")
+            return self._error("attachment_not_found", "I could not find the photo to attach.")
         self._ensure_weld_exists(drawing_number, weld_id)
         evidence = self.bridge.progress_service.link_photo(
             drawing_number=drawing_number,
@@ -429,7 +460,7 @@ class AgentToolbox:
         state.selected_weld_id = weld_id
         self.store.save_conversation(state)
         return self._success(
-            reply_hint=f"已把照片 {evidence.photo_id} 挂接到 {drawing_number}/{weld_id}。",
+            reply_hint=f"Attached photo {evidence.photo_id} to {drawing_number}/{weld_id}.",
             drawing_number=drawing_number,
             weld_id=weld_id,
             photo_id=evidence.photo_id,
@@ -456,7 +487,7 @@ class AgentToolbox:
                 }
             )
         return self._success(
-            reply_hint=_review_list_hint(items, drawing_number),
+            reply_hint=_review_list_hint(items, drawing_number, len(rows)),
             items=items,
             total=len(rows),
         )
@@ -466,23 +497,26 @@ class AgentToolbox:
         action = str(arguments["action"]).strip().lower()
         review_row = self.bridge.repository.get_review_item(review_id)
         if not review_row:
-            return self._error("review_not_found", f"未找到 review item: {review_id}")
+            return self._error("review_not_found", f"Review item not found: {review_id}")
 
         if action == "mark_resolved":
             self.bridge.repository.resolve_review_item(review_id)
-            return self._success(reply_hint=f"已将 review item {review_id} 标记为已解决。", review_id=review_id)
+            return self._success(reply_hint=f"Marked review item {review_id} as resolved.", review_id=review_id)
 
         if action == "keep_review_open":
-            return self._success(reply_hint=f"review item {review_id} 保持打开。", review_id=review_id)
+            return self._success(reply_hint=f"Review item {review_id} remains open.", review_id=review_id)
 
         if action == "inspect_manually":
-            return self._success(reply_hint=f"review item {review_id} 需人工复核，暂不自动改库。", review_id=review_id)
+            return self._success(
+                reply_hint=f"Review item {review_id} still needs manual review, so no automatic DB change was made.",
+                review_id=review_id,
+            )
 
         if action == "rerun_vlm":
             result = self.bridge.review_service.suggest_review_item(review_id, use_llm=True)
             final = result["final"]
             return self._success(
-                reply_hint=f"M5 建议动作: {final.get('model_recommended_action') or final.get('recommended_action')}",
+                reply_hint=f"M5 suggested action: {final.get('model_recommended_action') or final.get('recommended_action')}",
                 review_id=review_id,
                 llm=result["llm"],
                 final=final,
@@ -493,7 +527,10 @@ class AgentToolbox:
             weld_ids = [str(value) for value in arguments.get("weld_ids") or heuristic["candidate_weld_ids"]]
             drawing_number = review_row["drawing_number"]
             if not drawing_number:
-                return self._error("missing_drawing_context", "该 review item 没有 drawing_number，无法自动补录焊口。")
+                return self._error(
+                    "missing_drawing_context",
+                    "This review item has no drawing_number, so I cannot register welds automatically.",
+                )
             result = self.bridge.progress_service.register_welds(
                 drawing_number=drawing_number,
                 weld_ids=weld_ids,
@@ -504,16 +541,16 @@ class AgentToolbox:
             self.bridge.repository.resolve_review_item(review_id)
             return self._success(
                 reply_hint=(
-                    f"review item {review_id} 已处理。"
-                    f"新建: {', '.join(result['created']) if result['created'] else '无'}；"
-                    f"已存在跳过: {', '.join(result['skipped_existing']) if result['skipped_existing'] else '无'}。"
+                    f"Processed review item {review_id}. "
+                    f"Created: {', '.join(result['created']) if result['created'] else 'none'}; "
+                    f"skipped existing: {', '.join(result['skipped_existing']) if result['skipped_existing'] else 'none'}."
                 ),
                 review_id=review_id,
                 created=result["created"],
                 skipped_existing=result["skipped_existing"],
             )
 
-        return self._error("unsupported_review_action", f"不支持的 review action: {action}")
+        return self._error("unsupported_review_action", f"Unsupported review action: {action}")
 
     def _attachment_by_id(self, attachments: list[BotAttachment], attachment_id: str) -> BotAttachment | None:
         for attachment in attachments:
@@ -524,7 +561,7 @@ class AgentToolbox:
     def _ensure_weld_exists(self, drawing_number: str, weld_id: str) -> None:
         row = self.bridge.repository.get_weld(drawing_number, weld_id)
         if not row:
-            raise ValueError(f"未找到焊口: {drawing_number}/{weld_id}")
+            raise ValueError(f"Weld not found: {drawing_number}/{weld_id}")
 
     def _get_state(self, incoming: IncomingMessage):
         return self.store.get_conversation(incoming.channel, incoming.chat_id, self.config.agent.state_ttl_hours)
@@ -542,28 +579,30 @@ def _utc_now() -> datetime:
 
 def _drawing_search_hint(results: list[dict[str, Any]]) -> str:
     if not results:
-        return "没有找到匹配的图纸。"
+        return "No matching drawings found."
     if len(results) == 1:
         row = results[0]
-        return f"已定位图纸 {row['drawing_number']}。"
+        return f"Located drawing {row['drawing_number']}."
     labels = [row["drawing_number"] for row in results[:5]]
-    return "找到多张图纸: " + ", ".join(labels)
+    return "Found multiple drawings: " + ", ".join(labels)
 
 
 def _weld_search_hint(results: list[dict[str, Any]], drawing_number: str | None) -> str:
     if not results:
-        return "没有找到匹配的焊口。"
+        return "No matching welds found."
     if len(results) == 1:
         row = results[0]
-        return f"已定位焊口 {row['drawing_number']}/{row['weld_id']}。"
+        return f"Located weld {row['drawing_number']}/{row['weld_id']}."
     labels = [f"{row['drawing_number']}/{row['weld_id']}" for row in results[:5]]
-    prefix = f"图纸 {drawing_number} 下" if drawing_number else ""
-    return f"{prefix}找到多个焊口: " + ", ".join(labels)
+    prefix = f"Within drawing {drawing_number}, " if drawing_number else ""
+    return f"{prefix}found multiple welds: " + ", ".join(labels)
 
 
-def _review_list_hint(items: list[dict[str, Any]], drawing_number: str | None) -> str:
+def _review_list_hint(items: list[dict[str, Any]], drawing_number: str | None, total: int) -> str:
     if not items:
-        return "当前没有待审查项。"
-    scope = f"图纸 {drawing_number}" if drawing_number else "当前范围"
-    labels = [item["review_id"] for item in items[:5]]
-    return f"{scope}共有 {len(items)} 条审查项，示例: {', '.join(labels)}"
+        return "There are no open review items right now."
+    scope = f"Open review items for drawing {drawing_number}" if drawing_number else "Open review items"
+    lines = [f"{scope} ({total})", ""]
+    for index, item in enumerate(items, start=1):
+        lines.append(f"{index}. {item['summary']}")
+    return "\n".join(lines)

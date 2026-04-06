@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import yaml
@@ -7,8 +8,8 @@ from pydantic import BaseModel, Field
 
 
 class AssistantSection(BaseModel):
-    repo_path: str = "source_repo"
-    config_path: str = "source_repo/config/config.yaml"
+    repo_path: str = ""
+    config_path: str = "config/shared_assistant_config.yaml"
     auto_bootstrap: bool = True
 
 
@@ -19,6 +20,7 @@ class AgentSection(BaseModel):
     inbox_dir: str = "data/inbox"
     max_tool_rounds: int = 6
     state_ttl_hours: int = 24
+    use_local_vlm_for_parse: bool = True
 
 
 class SecuritySection(BaseModel):
@@ -45,7 +47,7 @@ class OpenAISection(BaseModel):
 class TelegramSection(BaseModel):
     enabled: bool = False
     bot_token_env: str = "TELEGRAM_BOT_TOKEN"
-    ack_text: str = "已收到，正在处理中。"
+    ack_text: str = "Received. Processing now."
     worker_count: int = 1
 
 
@@ -67,8 +69,30 @@ class AgentAppConfig(BaseModel):
 def load_agent_config(config_path: str | Path = "config/agent_config.yaml") -> AgentAppConfig:
     path = Path(config_path)
     if not path.exists():
-        return AgentAppConfig()
-    with path.open("r", encoding="utf-8") as handle:
-        data = yaml.safe_load(handle) or {}
-    return AgentAppConfig.model_validate(data)
+        config = AgentAppConfig()
+    else:
+        with path.open("r", encoding="utf-8") as handle:
+            data = yaml.safe_load(handle) or {}
+        config = AgentAppConfig.model_validate(data)
+    _apply_env_overrides(config)
+    return config
 
+
+def _apply_env_overrides(config: AgentAppConfig) -> None:
+    allowed_users = _split_csv_env(os.getenv("ALLOWED_USERS"))
+    if allowed_users:
+        config.security.allowed_users = allowed_users
+
+    allowed_chats = _split_csv_env(os.getenv("ALLOWED_CHATS"))
+    if allowed_chats:
+        config.security.allowed_chats = allowed_chats
+
+    admin_chats = _split_csv_env(os.getenv("ADMIN_CHATS"))
+    if admin_chats:
+        config.security.admin_chats = admin_chats
+
+
+def _split_csv_env(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]

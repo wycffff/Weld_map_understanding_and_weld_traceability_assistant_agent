@@ -1,0 +1,257 @@
+{
+  "1.jpg": [
+    {
+      "roi_id": "titleblock",
+      "type": "roi_titleblock",
+      "bbox_ratio": [0.32, 0.16, 0.72, 0.31],
+      "overlap": 0.0,
+      "source_image_version": "clean"
+    },
+    {
+      "roi_id": "bom",
+      "type": "roi_bom_table",
+      "bbox_ratio": [0.56, 0.54, 0.98, 0.89],
+      "overlap": 0.1,
+      "source_image_version": "clean"
+    },
+    {
+      "roi_id": "note",
+      "type": "roi_note",
+      "bbox_ratio": [0.28, 0.86, 0.96, 0.99],
+      "overlap": 0.0,
+      "source_image_version": "clean"
+    },
+    {
+      "roi_id": "iso",
+      "type": "roi_isometric",
+      "bbox_ratio": [0.02, 0.02, 0.98, 0.78],
+      "overlap": 0.05,
+      "source_image_version": "clean"
+    },
+    {
+      "roi_id": "weld_W01_seed",
+      "type": "roi_weld_label",
+      "bbox_ratio": [0.01, 0.28, 0.26, 0.40],
+      "overlap": 0.2,
+      "source_image_version": "clean",
+      "weld_hint": "W-01"
+    }
+  ],
+  "11.png": [
+    {
+      "roi_id": "titleblock",
+      "type": "roi_titleblock",
+      "bbox_ratio": [0.58, 0.87, 0.99, 0.99],
+      "overlap": 0.0,
+      "source_image_version": "clean"
+    },
+    {
+      "roi_id": "bom",
+      "type": "roi_bom_table",
+      "bbox_ratio": [0.66, 0.00, 0.99, 0.36],
+      "overlap": 0.02,
+      "source_image_version": "clean"
+    },
+    {
+      "roi_id": "weld_list",
+      "type": "roi_bom_table",
+      "bbox_ratio": [0.66, 0.36, 0.99, 0.62],
+      "overlap": 0.02,
+      "source_image_version": "clean"
+    },
+    {
+      "roi_id": "iso",
+      "type": "roi_isometric",
+      "bbox_ratio": [0.02, 0.02, 0.68, 0.80],
+      "overlap": 0.05,
+      "source_image_version": "clean"
+    },
+    {
+      "roi_id": "note",
+      "type": "roi_note",
+      "bbox_ratio": [0.00, 0.82, 0.99, 0.99],
+      "overlap": 0.0,
+      "source_image_version": "clean"
+    }
+  ],
+  "profile:simple_spool": [
+    {
+      "roi_id": "titleblock",
+      "type": "roi_titleblock",
+      "bbox_ratio": [0.32, 0.16, 0.72, 0.31],
+      "overlap": 0.0,
+      "source_image_version": "clean"
+    },
+    {
+      "roi_id": "bom",
+      "type": "roi_bom_table",
+      "bbox_ratio": [0.56, 0.54, 0.98, 0.89],
+      "overlap": 0.1,
+      "source_image_version": "clean"
+    },
+    {
+      "roi_id": "note",
+      "type": "roi_note",
+      "bbox_ratio": [0.28, 0.86, 0.96, 0.99],
+      "overlap": 0.0,
+      "source_image_version": "clean"
+    },
+    {
+      "roi_id": "iso",
+      "type": "roi_isometric",
+      "bbox_ratio": [0.02, 0.02, 0.98, 0.78],
+      "overlap": 0.05,
+      "source_image_version": "clean"
+    }
+  ],
+  "profile:welding_map_sheet": [
+    {
+      "roi_id": "titleblock",
+      "type": "roi_titleblock",
+      "bbox_ratio": [0.00, 0.78, 0.83, 0.99],
+      "overlap": 0.0,
+      "source_image_version": "clean"
+    },
+    {
+      "roi_id": "bom_erection",
+      "type": "roi_bom_table",
+      "bbox_ratio": [0.71, 0.02, 0.99, 0.34],
+      "overlap": 0.05,
+      "source_image_version": "clean"
+    },
+    {
+      "roi_id": "bom_fabrication",
+      "type": "roi_bom_table",
+      "bbox_ratio": [0.71, 0.34, 0.99, 0.56],
+      "overlap": 0.05,
+      "source_image_version": "clean"
+    },
+    {
+      "roi_id": "weld_list",
+      "type": "roi_bom_table",
+      "bbox_ratio": [0.66, 0.58, 0.82, 0.80],
+      "overlap": 0.05,
+      "source_image_version": "strong"
+    },
+    {
+      "roi_id": "iso",
+      "type": "roi_isometric",
+      "bbox_ratio": [0.01, 0.02, 0.71, 0.79],
+      "overlap": 0.05,
+      "source_image_version": "clean"
+    }
+  ],
+  "profile:fabrication_weld_sheet": [
+    {
+      "roi_id": "weld_panel_top",
+      "type": "roi_isometric",
+      "bbox_ratio": [0.00, 0.00, 0.50, 0.24],
+      "overlap": 0.02,
+      "source_image_version": "clean"
+    },
+    {
+      "roi_id": "parts_list",
+      "type": "roi_bom_table",
+      "bbox_ratio": [0.56, 0.00, 0.99, 0.26],
+      "overlap": 0.02,
+      "source_image_version": "clean"
+    },
+    {
+      "roi_id": "iso",
+      "type": "roi_isometric",
+      "bbox_ratio": [0.02, 0.18, 0.98, 0.84],
+      "overlap": 0.05,
+      "source_image_version": "clean"
+    },
+    {
+      "roi_id": "weld_panel_bottom",
+      "type": "roi_isometric",
+      "bbox_ratio": [0.00, 0.74, 0.42, 0.99],
+      "overlap": 0.02,
+      "source_image_version": "clean"
+    },
+    {
+      "roi_id": "titleblock",
+      "type": "roi_titleblock",
+      "bbox_ratio": [0.53, 0.84, 0.97, 0.99],
+      "overlap": 0.0,
+      "source_image_version": "clean"
+    }
+  ],
+  "profile:dual_isometric_sheet": [
+    {
+      "roi_id": "titleblock",
+      "type": "roi_titleblock",
+      "bbox_ratio": [0.00, 0.76, 0.46, 0.99],
+      "overlap": 0.0,
+      "source_image_version": "clean"
+    },
+    {
+      "roi_id": "bom",
+      "type": "roi_bom_table",
+      "bbox_ratio": [0.64, 0.72, 0.98, 0.98],
+      "overlap": 0.03,
+      "source_image_version": "clean"
+    },
+    {
+      "roi_id": "iso_upper",
+      "type": "roi_isometric",
+      "bbox_ratio": [0.02, 0.02, 0.64, 0.48],
+      "overlap": 0.03,
+      "source_image_version": "clean"
+    },
+    {
+      "roi_id": "iso_lower",
+      "type": "roi_isometric",
+      "bbox_ratio": [0.02, 0.50, 0.64, 0.98],
+      "overlap": 0.03,
+      "source_image_version": "clean"
+    },
+    {
+      "roi_id": "revision_block",
+      "type": "roi_note",
+      "bbox_ratio": [0.64, 0.02, 0.98, 0.70],
+      "overlap": 0.02,
+      "source_image_version": "clean"
+    }
+  ],
+  "profile:weld_log": [
+    {
+      "roi_id": "titleblock",
+      "type": "roi_titleblock",
+      "bbox_ratio": [0.00, 0.00, 1.00, 0.18],
+      "overlap": 0.0,
+      "source_image_version": "clean"
+    },
+    {
+      "roi_id": "weld_log_table",
+      "type": "roi_bom_table",
+      "bbox_ratio": [0.00, 0.12, 1.00, 0.80],
+      "overlap": 0.02,
+      "source_image_version": "clean"
+    }
+  ],
+  "default": [
+    {
+      "roi_id": "titleblock",
+      "type": "roi_titleblock",
+      "bbox_ratio": [0.68, 0.74, 0.98, 0.98],
+      "overlap": 0.0,
+      "source_image_version": "clean"
+    },
+    {
+      "roi_id": "bom",
+      "type": "roi_bom_table",
+      "bbox_ratio": [0.62, 0.18, 0.98, 0.70],
+      "overlap": 0.1,
+      "source_image_version": "clean"
+    },
+    {
+      "roi_id": "iso",
+      "type": "roi_isometric",
+      "bbox_ratio": [0.02, 0.02, 0.94, 0.92],
+      "overlap": 0.05,
+      "source_image_version": "clean"
+    }
+  ]
+}

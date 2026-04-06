@@ -25,7 +25,7 @@ class HeuristicLLMAdapter:
 
         if active_draft and _looks_like_confirmation(text):
             result = tool_executor("confirm_draft_import", {})
-            return result.get("reply_hint", "\u8349\u7a3f\u5df2\u786e\u8ba4\u3002")
+            return result.get("reply_hint", "Draft confirmed.")
 
         if incoming.attachments:
             if conversation.selected_drawing_number and (_looks_like_photo_message(text) or weld_id):
@@ -36,70 +36,69 @@ class HeuristicLLMAdapter:
                         "attachment_id": incoming.attachments[0].attachment_id,
                     },
                 )
-                return result.get("reply_hint", "\u5df2\u6302\u63a5\u7167\u7247\u3002")
+                return result.get("reply_hint", "Photo linked.")
 
             result = tool_executor(
                 "parse_drawing_draft",
                 {"attachment_id": incoming.attachments[0].attachment_id},
             )
-            return result.get("reply_hint", "\u5df2\u751f\u6210\u8349\u7a3f\u3002")
+            return result.get("reply_hint", "Draft created.")
 
-        if "review" in normalized_text or "\u5ba1\u67e5" in text or "\u590d\u6838" in text:
+        if any(keyword in normalized_text for keyword in ("list review", "show review", "review items", "review")):
             result = tool_executor("list_review_items", {})
-            return result.get("reply_hint", "\u5df2\u5217\u51fa\u5ba1\u67e5\u9879\u3002")
+            return result.get("reply_hint", "Review items listed.")
 
-        if weld_id and ("\u68c0\u9a8c" in text or "inspection" in normalized_text or "vt" in normalized_text):
+        if weld_id and ("inspection" in normalized_text or "vt" in normalized_text):
             inspection_status = _extract_inspection_status(text)
             result = tool_executor(
                 "update_inspection_status",
                 {"weld_id": weld_id, "inspection_status": inspection_status},
             )
-            return result.get("reply_hint", "\u5df2\u66f4\u65b0\u68c0\u9a8c\u72b6\u6001\u3002")
+            return result.get("reply_hint", "Inspection status updated.")
 
         if weld_id and any(
-            token in text
-            for token in ("\u5b8c\u6210", "done", "blocked", "\u8fdb\u884c\u4e2d", "\u5f00\u59cb")
+            token in normalized_text
+            for token in ("done", "blocked", "in progress", "started", "start", "complete", "completed")
         ):
             status = _extract_weld_status(text)
             result = tool_executor(
                 "update_weld_status",
                 {"weld_id": weld_id, "to_status": status},
             )
-            return result.get("reply_hint", "\u5df2\u66f4\u65b0\u710a\u63a5\u72b6\u6001\u3002")
+            return result.get("reply_hint", "Weld status updated.")
 
-        if any(keyword in normalized_text for keyword in ("dwg", "drawing", "spool")) or any(
-            token in text for token in ("\u56fe\u7eb8", "\u56fe\u53f7")
-        ):
+        if any(keyword in normalized_text for keyword in ("dwg", "drawing", "spool")):
             result = tool_executor("search_drawings", {"query": text})
-            return result.get("reply_hint", "\u5df2\u68c0\u7d22\u56fe\u7eb8\u3002")
+            return result.get("reply_hint", "Drawing search complete.")
 
         if weld_id:
             result = tool_executor("search_welds", {"query": weld_id})
-            return result.get("reply_hint", "\u5df2\u68c0\u7d22\u710a\u53e3\u3002")
+            return result.get("reply_hint", "Weld search complete.")
 
         return (
-            "\u6211\u8fd8\u9700\u8981\u66f4\u660e\u786e\u4e00\u70b9\u7684\u4fe1\u606f\u3002"
-            "\u4f60\u53ef\u4ee5\u53d1\u56fe\u7eb8\u3001\u8bf4\u201c\u786e\u8ba4\u5f55\u5165\u201d\uff0c"
-            "\u6216\u8005\u76f4\u63a5\u7ed9\u6211\u56fe\u53f7\u548c\u710a\u53e3\u53f7\u3002"
+            "I need a bit more information. "
+            "You can send a drawing, say 'confirm import', "
+            "or provide the drawing number and weld ID directly."
         )
 
 
 def _looks_like_confirmation(text: str) -> bool:
     normalized = text.strip().lower()
     return normalized in {
-        "\u786e\u8ba4",
-        "\u786e\u8ba4\u5f55\u5165",
+        "confirm",
+        "confirm import",
+        "confirm entry",
+        "confirm database import",
         "yes",
         "ok",
-        "\u597d\u7684",
-        "\u53ef\u4ee5\u5f55\u5165",
-        "\u786e\u8ba4\u5165\u5e93",
+        "okay",
+        "approved",
     }
 
 
 def _looks_like_photo_message(text: str) -> bool:
     lowered = text.lower()
-    return any(token in text for token in ("\u7167\u7247", "\u76f8\u7247", "\u56fe\u7247")) or "photo" in lowered
+    return any(token in lowered for token in ("photo", "picture", "image"))
 
 
 def _extract_weld_id(text: str) -> str | None:
@@ -114,19 +113,17 @@ def _extract_weld_id(text: str) -> str | None:
 
 def _extract_weld_status(text: str) -> str:
     lowered = text.lower()
-    if "blocked" in lowered or "\u963b\u585e" in text:
+    if "blocked" in lowered:
         return "blocked"
-    if "\u8fdb\u884c\u4e2d" in text or "in progress" in lowered:
-        return "in_progress"
-    if "\u5f00\u59cb" in text:
+    if any(token in lowered for token in ("in progress", "started", "start")):
         return "in_progress"
     return "done"
 
 
 def _extract_inspection_status(text: str) -> str:
     lowered = text.lower()
-    if "rejected" in lowered or "\u4e0d\u901a\u8fc7" in text or "\u62d2\u6536" in text:
+    if any(token in lowered for token in ("rejected", "failed", "not passed")):
         return "rejected"
-    if "pending" in lowered or "\u5f85\u68c0" in text:
+    if "pending" in lowered:
         return "pending"
     return "accepted"

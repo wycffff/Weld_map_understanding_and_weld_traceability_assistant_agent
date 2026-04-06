@@ -10,6 +10,7 @@ agent:
   inbox_dir: "data/inbox"
   max_tool_rounds: 6
   state_ttl_hours: 24
+  use_local_vlm_for_parse: true
 
 security:
   allowed_users: []
@@ -32,5 +33,5 @@ openai:
 telegram:
   enabled: false
   bot_token_env: "TELEGRAM_BOT_TOKEN"
-  ack_text: "\u5df2\u6536\u5230\uff0c\u6b63\u5728\u5904\u7406\u4e2d\u3002"
+  ack_text: "Processing..."
   worker_count: 1

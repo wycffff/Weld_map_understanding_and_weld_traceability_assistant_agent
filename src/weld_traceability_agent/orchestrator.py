@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Callable
 
 from weld_traceability_agent.assistant_bridge import AssistantBridge
@@ -29,13 +30,21 @@ class AgentOrchestrator:
 
         conversation = self.store.get_conversation(incoming.channel, incoming.chat_id, self.config.agent.state_ttl_hours)
         active_draft = self.store.get_active_draft(incoming.chat_id)
-
-        system_prompt = self._build_system_prompt()
-        user_prompt = self._build_user_prompt(incoming, conversation, active_draft)
         self.toolbox.reset_outbox()
 
         def tool_executor(tool_name: str, arguments: dict) -> dict:
             return self.toolbox.invoke(tool_name, arguments, incoming)
+
+        direct_reply = self._maybe_route_attachment(incoming, conversation, tool_executor)
+        if direct_reply is not None:
+            messages = []
+            if direct_reply.strip():
+                messages.append(OutgoingMessage(chat_id=incoming.chat_id, text=direct_reply.strip()))
+            messages.extend(self.toolbox.drain_outbox())
+            return BotReplyPlan(messages=messages)
+
+        system_prompt = self._build_system_prompt()
+        user_prompt = self._build_user_prompt(incoming, conversation, active_draft)
 
         try:
             reply_text = self._run_with_adapter(
@@ -103,13 +112,14 @@ class AgentOrchestrator:
     def _build_system_prompt(self) -> str:
         return (
             "You are a weld traceability Telegram agent.\n"
-            "Always reply in concise Simplified Chinese.\n"
+            "Always reply in concise English unless the user explicitly asks for another language.\n"
             "Rules:\n"
             "1. Draft parsing must happen before import. Use parse_drawing_draft first, and only call confirm_draft_import after explicit user confirmation.\n"
             "2. Use only the provided business tools. Never pretend that a database write already happened.\n"
             "3. Any database mutation requires a unique drawing context and a unique weld context. If context is ambiguous, ask one short follow-up question.\n"
             "4. Do not return JSON to the user. Give short operator-facing conclusions.\n"
             "5. If a tool returns reply_hint, prefer it when drafting the final reply.\n"
+            "6. If the user asks to list or show review items, call list_review_items.\n"
         )
 
     def _build_user_prompt(self, incoming: IncomingMessage, conversation: ConversationState, active_draft) -> str:
@@ -129,3 +139,80 @@ class AgentOrchestrator:
             f"selected_weld={conversation.selected_weld_id}, pending_action={conversation.pending_action}\n"
             + f"active_draft: {draft_summary}\n"
         )
+
+    def _maybe_route_attachment(
+        self,
+        incoming: IncomingMessage,
+        conversation: ConversationState,
+        tool_executor: Callable[[str, dict], dict],
+    ) -> str | None:
+        if not incoming.attachments:
+            return None
+
+        first_attachment = incoming.attachments[0]
+        lowered_text = (incoming.text or "").strip().lower()
+        weld_id = _extract_weld_id(incoming.text or "") or conversation.selected_weld_id
+        has_drawing_context = bool(conversation.selected_drawing_number)
+        has_usable_weld_context = has_drawing_context and bool(weld_id)
+
+        if has_usable_weld_context and (_looks_like_photo_message(lowered_text) or first_attachment.kind == "photo"):
+            result = tool_executor(
+                "link_photo",
+                {
+                    "weld_id": weld_id,
+                    "attachment_id": first_attachment.attachment_id,
+                },
+            )
+            return result.get("reply_hint", "Photo linked.")
+
+        if _looks_like_drawing_import_request(lowered_text):
+            result = tool_executor(
+                "parse_drawing_draft",
+                {"attachment_id": first_attachment.attachment_id},
+            )
+            return result.get("reply_hint", "Draft created.")
+
+        if has_usable_weld_context:
+            return None
+
+        decision = self.bridge.classify_attachment_for_routing(first_attachment.local_path)
+        if decision.kind == "drawing":
+            result = tool_executor(
+                "parse_drawing_draft",
+                {"attachment_id": first_attachment.attachment_id},
+            )
+            return result.get("reply_hint", "Draft created.")
+
+        if has_drawing_context:
+            return (
+                f"This looks like a weld photo. I already have drawing {conversation.selected_drawing_number} in context, "
+                "so send the weld ID to attach it."
+            )
+        return (
+            "This looks like a weld photo. "
+            "Send the drawing number and weld ID so I can attach it."
+        )
+
+
+def _looks_like_drawing_import_request(text: str) -> bool:
+    if not text:
+        return False
+    if "import this drawing" in text or "import drawing" in text or "parse drawing" in text:
+        return True
+    has_drawing_word = any(token in text for token in ("drawing", "dwg", "spool"))
+    has_import_word = any(token in text for token in ("import", "ingest", "record", "register", "parse"))
+    return has_drawing_word and has_import_word
+
+
+def _looks_like_photo_message(text: str) -> bool:
+    return any(token in text for token in ("photo", "picture", "image"))
+
+
+def _extract_weld_id(text: str) -> str | None:
+    match = re.search(r"\bW[- ]?\d+\b", text, re.IGNORECASE)
+    if match:
+        return match.group(0).replace(" ", "")
+    match = re.search(r"\b\d{1,4}\b", text)
+    if match:
+        return match.group(0)
+    return None
